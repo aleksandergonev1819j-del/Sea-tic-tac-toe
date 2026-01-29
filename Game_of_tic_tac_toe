@@ -1,0 +1,275 @@
+import tkinter as tk
+from tkinter import messagebox
+from PIL import Image, ImageTk
+import pygame
+import os
+import sys
+import random
+
+# === Функция за намиране на пътя до ресурси ===
+def resource_path(relative_path):
+    try:
+        base_path = sys._MEIPASS
+    except AttributeError:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
+
+def play_sound():
+    try:
+        pygame.mixer.music.load(resource_path("waves.wav"))
+        pygame.mixer.music.set_volume(0.8)
+        pygame.mixer.music.play(-1)
+    except Exception as e:
+        print("Неуспешно зареждане на звука:", e)
+
+def on_canvas_click(event):
+    global current_player
+    if game_mode.startswith("AI") and current_player == ai_side:
+        return
+
+    col = event.x // CELL_SIZE
+    row = event.y // CELL_SIZE
+    i = row * 3 + col
+
+    if 0 <= col < 3 and 0 <= row < 3 and board[i] == "":
+        make_move(i)
+
+def make_move(i):
+    global current_player, score_X, score_O, ties, total_games
+    col, row = i % 3, i // 3
+    x = col * CELL_SIZE
+    y = row * CELL_SIZE
+
+    board[i] = current_player
+    if current_player == "X":
+        canvas.create_image(x, y, image=fish_img, anchor="nw", tags="piece")
+    else:
+        canvas.create_image(x, y, image=shell_img, anchor="nw", tags="piece")
+
+    if check_win():
+        if current_player == "X":
+            score_X += 1
+        else:
+            score_O += 1
+        total_games += 1
+        update_score()
+        messagebox.showinfo("Победа!", f"Играч {current_player} печели!")
+        new_game()
+    elif all(cell != "" for cell in board):
+        ties += 1
+        total_games += 1
+        update_score()
+        messagebox.showinfo("Равенство", "Никой не печели!")
+        new_game()
+    else:
+        current_player = "O" if current_player == "X" else "X"
+        if game_mode.startswith("AI") and current_player == ai_side:
+            root.after(500, ai_move)
+
+def ai_move():
+    if game_mode == "AI_EASY":
+        easy_ai_move()
+    elif game_mode == "AI_HARD":
+        hard_ai_move()
+
+def easy_ai_move():
+    empty_indices = [i for i, cell in enumerate(board) if cell == ""]
+    if empty_indices:
+        i = random.choice(empty_indices)
+        make_move(i)
+
+def hard_ai_move():
+    empty_indices = [i for i, cell in enumerate(board) if cell == ""]
+
+    if current_player == ai_side and all(cell == "" for cell in board):
+        # Първи ход на AI – избира на случайна позиция
+        move = random.choice(empty_indices)
+        make_move(move)
+        return
+
+    best_score = -float('inf')
+    best_moves = []
+
+    for i in empty_indices:
+        board[i] = ai_side
+        score = minimax(board, 0, False)
+        board[i] = ""
+        if score > best_score:
+            best_score = score
+            best_moves = [i]
+        elif score == best_score:
+            best_moves.append(i)
+
+    if best_moves:
+        move = random.choice(best_moves)
+        make_move(move)
+
+def minimax(board_state, depth, is_maximizing):
+    winner = get_winner()
+    if winner == ai_side:
+        return 1
+    elif winner == player_side:
+        return -1
+    elif all(cell != "" for cell in board_state):
+        return 0
+
+    if is_maximizing:
+        best_score = -float('inf')
+        for i in range(9):
+            if board_state[i] == "":
+                board_state[i] = ai_side
+                score = minimax(board_state, depth + 1, False)
+                board_state[i] = ""
+                best_score = max(score, best_score)
+        return best_score
+    else:
+        best_score = float('inf')
+        for i in range(9):
+            if board_state[i] == "":
+                board_state[i] = player_side
+                score = minimax(board_state, depth + 1, True)
+                board_state[i] = ""
+                best_score = min(score, best_score)
+        return best_score
+
+def get_winner():
+    win_coords = [(0,1,2),(3,4,5),(6,7,8),(0,3,6),(1,4,7),(2,5,8),(0,4,8),(2,4,6)]
+    for a,b,c in win_coords:
+        if board[a] == board[b] == board[c] != "":
+            return board[a]
+    return None
+
+def check_win():
+    return get_winner() is not None
+
+def reset_game():
+    global board, current_player
+    board = [""] * 9
+    canvas.delete("piece")
+    current_player = "X"
+
+def new_game():
+    reset_game()
+    update_score()
+    if game_mode.startswith("AI") and current_player == ai_side:
+        root.after(500, ai_move)
+
+def update_score():
+    score_label.config(text=f"X: {score_X}    O: {score_O}    Равенства: {ties}    Общо игри: {total_games}")
+
+def choose_side(selected_mode):
+    global game_mode, player_side, ai_side
+    game_mode = selected_mode
+    start_frame.pack_forget()
+
+    if selected_mode == "PVP":
+        player_side = "X"
+        ai_side = "O"
+        launch_game()
+        return
+
+    play_sound()
+    menu2_frame = tk.Frame(root)
+    menu2_bg = Image.open(resource_path("menu2.png")).resize((WINDOW_SIZE, WINDOW_SIZE + 100), Image.Resampling.LANCZOS).copy()
+    menu2_photo = ImageTk.PhotoImage(menu2_bg)
+    canvas2 = tk.Canvas(menu2_frame, width=WINDOW_SIZE, height=WINDOW_SIZE + 100)
+    canvas2.bg_image = menu2_photo
+    canvas2.create_image(0, 0, image=menu2_photo, anchor="nw")
+    canvas2.pack()
+
+    def select_player(symbol):
+        global player_side, ai_side, current_player
+        player_side = symbol
+        ai_side = "O" if symbol == "X" else "X"
+        current_player = "X"  # Играта винаги започва с X
+        menu2_frame.pack_forget()
+        launch_game()
+
+    canvas2.create_window(WINDOW_SIZE//2, 200, window=tk.Button(menu2_frame, text="Играй с Рибата (X)", font=("Arial", 14), command=lambda: select_player("X")))
+    canvas2.create_window(WINDOW_SIZE//2, 260, window=tk.Button(menu2_frame, text="Играй с Мидата (O)", font=("Arial", 14), command=lambda: select_player("O")))
+    canvas2.create_window(WINDOW_SIZE//2, 320, window=tk.Button(menu2_frame, text="Назад", font=("Arial", 12), command=lambda: [menu2_frame.pack_forget(), start_frame.pack()]))
+    menu2_frame.pack()
+
+def launch_game():
+    global canvas, fish_img, shell_img, bg_photo, score_label
+
+    bg_image = Image.open(resource_path("background.png")).resize((WINDOW_SIZE, WINDOW_SIZE), Image.Resampling.LANCZOS)
+    bg_photo = ImageTk.PhotoImage(bg_image)
+    fish_img = ImageTk.PhotoImage(Image.open(resource_path("fish.png")).resize((CELL_SIZE, CELL_SIZE), Image.Resampling.LANCZOS))
+    shell_img = ImageTk.PhotoImage(Image.open(resource_path("shell.png")).resize((CELL_SIZE, CELL_SIZE), Image.Resampling.LANCZOS))
+
+    canvas = tk.Canvas(root, width=WINDOW_SIZE, height=WINDOW_SIZE)
+    canvas.create_image(0, 0, image=bg_photo, anchor="nw")
+    for i in range(1, 3):
+        canvas.create_line(0, i * CELL_SIZE, WINDOW_SIZE, i * CELL_SIZE, width=4, fill="#004466")
+        canvas.create_line(i * CELL_SIZE, 0, i * CELL_SIZE, WINDOW_SIZE, width=4, fill="#004466")
+    canvas.bind("<Button-1>", on_canvas_click)
+    canvas.pack()
+
+    score_label = tk.Label(root, text="", font=("Arial", 14), bg="#cceeff")
+    score_label.pack(fill='x')
+
+    back_btn = tk.Button(root, text="Назад към главното меню", font=("Arial", 12), command=return_to_menu)
+    back_btn.pack(pady=5)
+
+    new_game()
+
+def return_to_menu():
+    canvas.pack_forget()
+    score_label.pack_forget()
+    for widget in root.pack_slaves():
+        if isinstance(widget, tk.Button) and "Назад към главното меню" in widget.cget("text"):
+            widget.destroy()
+    reset_all()
+    start_frame.pack()
+    play_sound()
+
+def reset_all():
+    global score_X, score_O, ties, total_games, player_side, ai_side
+    score_X = 0
+    score_O = 0
+    ties = 0
+    total_games = 0
+    player_side = "X"
+    ai_side = "O"
+
+# Константи
+WINDOW_SIZE = 720
+CELL_SIZE = WINDOW_SIZE // 3
+
+# Основен прозорец
+root = tk.Tk()
+root.title("Морски Шах – X = Риба, O = Мида")
+root.geometry(f"{WINDOW_SIZE}x{WINDOW_SIZE+100}")
+root.resizable(False, False)
+
+pygame.mixer.init()
+play_sound()
+
+# Начално меню
+start_frame = tk.Frame(root)
+menu_bg_image = Image.open(resource_path("background_menu.png")).resize((WINDOW_SIZE, WINDOW_SIZE + 100), Image.Resampling.LANCZOS)
+menu_bg_photo = ImageTk.PhotoImage(menu_bg_image)
+menu_canvas = tk.Canvas(start_frame, width=WINDOW_SIZE, height=WINDOW_SIZE + 100)
+menu_canvas.create_image(0, 0, image=menu_bg_photo, anchor="nw")
+menu_canvas.pack()
+
+menu_label = tk.Label(start_frame, text="Избери режим на игра", font=("Arial", 20), fg="white", bg="skyblue")
+menu_canvas.create_window(WINDOW_SIZE//2, 100, window=menu_label)
+menu_canvas.create_window(WINDOW_SIZE//2, 200, window=tk.Button(start_frame, text="Човек срещу Човек", font=("Arial", 14), width=25, command=lambda: choose_side("PVP")))
+menu_canvas.create_window(WINDOW_SIZE//2, 260, window=tk.Button(start_frame, text="Срещу Компютър (Easy)", font=("Arial", 14), width=25, command=lambda: choose_side("AI_EASY")))
+menu_canvas.create_window(WINDOW_SIZE//2, 320, window=tk.Button(start_frame, text="Срещу Компютър (Hard)", font=("Arial", 14), width=25, command=lambda: choose_side("AI_HARD")))
+start_frame.pack()
+
+# Инициализация
+board = [""] * 9
+current_player = "X"
+game_mode = "PVP"
+score_X = 0
+score_O = 0
+ties = 0
+total_games = 0
+player_side = "X"
+ai_side = "O"
+
+root.mainloop()
