@@ -6,7 +6,6 @@ import os
 import sys
 import random
 
-# === Функция за намиране на пътя до ресурси ===
 def resource_path(relative_path):
     try:
         base_path = sys._MEIPASS
